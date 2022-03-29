@@ -5,8 +5,11 @@
 	"browserslist": [
 		"maintained node versions"
 	],
-	"main": "./lib/index.js",
-	"types": "./lib/index.d.ts",
+	"main": "./source/index.js",
+	"types": "./source/index.d.ts",
+	"workspaces": [
+		"./tests"
+	],
 	"scripts": {
 		"build": "rollup -c",
 		"watch": "rollup -cw",

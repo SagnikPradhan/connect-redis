@@ -5,6 +5,7 @@ export type Callback<D = undefined, E = Error> = (error?: E, data?: D) => void
 
 /** User's base session */
 export interface IBaseSession {
+	[index: string]: unknown
 	cookie?: { expires?: Date }
 }
 
@@ -25,7 +26,7 @@ export type BaseSessionStore<
 	Session extends IBaseSession
 > = abstract new (options?: Options) => IBaseSessionStore<Session>
 
-type NodeRedis = nodeRedis.RedisClientType
+type NodeRedis = nodeRedis.RedisClientType<any, any>
 type IORedis = ioRedis.default | ioRedis.Cluster
 type RedisClient = NodeRedis | IORedis
 
@@ -100,8 +101,8 @@ export default function connectRedis<
 			const main = async () => {
 				const key = `${this.prefix}${sid}`
 				const value = await this.client.get(key)
-				if (!value) return null
-				return this.serializer.parse(value)
+				if (value) return this.serializer.parse(value)
+				else return null
 			}
 
 			attach(callback)(main())
@@ -112,11 +113,12 @@ export default function connectRedis<
 				const key = `${this.prefix}${sid}`
 				const value = this.serializer.stringify(session)
 
-				const ttl = this.__getTTL(session)
-				if (ttl < 0 && !this.disableTTL) return await this.client.del(key)
+				if (this.disableTTL) return this.client.set(key, value)
 
-				if (this.disableTTL) this.client.set(key, value)
-				else if (isNodeRedis(this.client))
+				const ttl = this.__getTTL(session)
+				if (ttl < 0) return await this.client.del(key)
+
+				if (isNodeRedis(this.client))
 					await this.client.set(key, value, { EX: ttl })
 				else await this.client.set(key, value, "EX", ttl)
 			}

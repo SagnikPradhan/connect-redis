@@ -1,22 +1,22 @@
-import ts from "rollup-plugin-ts";
+import ts from "rollup-plugin-ts"
 
 /** @type {import("rollup").RollupOptions} */
 const config = {
-  input: "./lib/index.ts",
+	input: "./source/index.ts",
 
-  plugins: [
-    ts({
-      transpiler: "swc",
-      browserslist: "maintained node versions",
-      swcConfig: { minify: true },
-    }),
-  ],
+	plugins: [
+		ts({
+			transpiler: "swc",
+			browserslist: "maintained node versions",
+			swcConfig: { minify: true },
+		}),
+	],
 
-  output: {
-    file: "./lib/index.js",
-    format: "commonjs",
-    exports: "default",
-  },
-};
+	output: {
+		file: "./source/index.js",
+		format: "commonjs",
+		exports: "default",
+	},
+}
 
-export default config;
+export default config

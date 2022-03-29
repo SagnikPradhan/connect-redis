@@ -3,6 +3,7 @@ import * as ioRedis from "ioredis";
 type Callback<D = undefined, E = Error> = (error?: E, data?: D) => void;
 /** User's base session */
 interface IBaseSession {
+    [index: string]: unknown;
     cookie?: {
         expires?: Date;
     };
@@ -21,7 +22,7 @@ interface IBaseSessionStore<Session extends IBaseSession> {
 }
 /** Plugin base session class */
 type BaseSessionStore<Options extends Record<string, unknown>, Session extends IBaseSession> = abstract new (options?: Options) => IBaseSessionStore<Session>;
-type NodeRedis = nodeRedis.RedisClientType;
+type NodeRedis = nodeRedis.RedisClientType<any, any>;
 type IORedis = ioRedis.default | ioRedis.Cluster;
 type RedisClient = NodeRedis | IORedis;
 /** Session serializer */
