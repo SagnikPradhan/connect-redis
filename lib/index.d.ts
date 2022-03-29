@@ -14,13 +14,13 @@ interface IBaseSessionStore<Session extends IBaseSession> {
     destroy(sid: string, callback?: Callback): void;
     all?(callback: Callback<{
         [sid: string]: Session;
-    }>): void;
+    } | Session[] | null>): void;
     length?(callback: Callback<number>): void;
     clear?(callback?: Callback): void;
     touch?(sid: string, session: Session, callback?: Callback): void;
 }
 /** Plugin base session class */
-type BaseSessionStore<Options extends Record<string, unknown>, Session extends IBaseSession> = new (options?: Options) => IBaseSessionStore<Session>;
+type BaseSessionStore<Options extends Record<string, unknown>, Session extends IBaseSession> = abstract new (options?: Options) => IBaseSessionStore<Session>;
 type NodeRedis = nodeRedis.RedisClientType;
 type IORedis = ioRedis.default | ioRedis.Cluster;
 type RedisClient = NodeRedis | IORedis;
@@ -57,28 +57,19 @@ declare function connectRedis<Options extends Record<string, unknown>, Session e
         disableTTL: boolean;
         ttl: number;
         disableTouch: boolean;
-        getAsync(sid: string): Promise<Session | null>;
-        setAsync(sid: string, session: Session): Promise<void>;
-        destroyAsync(sid: string): Promise<void>;
-        touchAsync(sid: string, session: Session): Promise<void>;
-        clearAsync(): Promise<void>;
-        lengthAsync(): Promise<number>;
-        idsAsync(): Promise<string[]>;
-        allAsync(): Promise<{
+        get(sid: string, callback: Callback<Session | null>): void;
+        set(sid: string, session: Session, callback: Callback): void;
+        destroy(sid: string, callback: Callback): void;
+        touch(sid: string, session: Session, callback: Callback): void;
+        clear(callback: Callback): void;
+        length(callback: Callback<number>): void;
+        ids(callback: Callback<string[]>): void;
+        all(callback: Callback<{
             [k: string]: Session;
-        }>;
+        }, Error>): void;
         __getTTL(session: Session): number;
         __getAllKeys(): Promise<string[]>;
         __scanKeys(cursor: number, pattern: string, count: number): Promise<string[]>;
-        get(sid: string, callback: Callback<Session | null, Error>): void;
-        set(sid: string, session: Session, callback?: Callback<undefined, Error> | undefined): void;
-        destroy(sid: string, callback?: Callback<undefined, Error> | undefined): void;
-        all?(callback: Callback<{
-            [sid: string]: Session;
-        }, Error>): void;
-        length?(callback: Callback<number, Error>): void;
-        clear?(callback?: Callback<undefined, Error> | undefined): void;
-        touch?(sid: string, session: Session, callback?: Callback<undefined, Error> | undefined): void;
     };
 };
 export { Callback, IBaseSession, IBaseSessionStore, BaseSessionStore, Serializer, connectRedis as default };

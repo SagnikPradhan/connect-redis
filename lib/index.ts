@@ -1,12 +1,6 @@
 import type * as nodeRedis from "redis"
 import type * as ioRedis from "ioredis"
 
-import redis from "redis"
-
-const x = redis.createClient()
-
-x.scan(1, {}).then()
-
 export type Callback<D = undefined, E = Error> = (error?: E, data?: D) => void
 
 /** User's base session */
@@ -19,7 +13,7 @@ export interface IBaseSessionStore<Session extends IBaseSession> {
 	get(sid: string, callback: Callback<Session | null, Error>): void
 	set(sid: string, session: Session, callback?: Callback): void
 	destroy(sid: string, callback?: Callback): void
-	all?(callback: Callback<{ [sid: string]: Session }>): void
+	all?(callback: Callback<{ [sid: string]: Session } | Session[] | null>): void
 	length?(callback: Callback<number>): void
 	clear?(callback?: Callback): void
 	touch?(sid: string, session: Session, callback?: Callback): void
@@ -29,7 +23,7 @@ export interface IBaseSessionStore<Session extends IBaseSession> {
 export type BaseSessionStore<
 	Options extends Record<string, unknown>,
 	Session extends IBaseSession
-> = new (options?: Options) => IBaseSessionStore<Session>
+> = abstract new (options?: Options) => IBaseSessionStore<Session>
 
 type NodeRedis = nodeRedis.RedisClientType
 type IORedis = ioRedis.default | ioRedis.Cluster
@@ -62,18 +56,11 @@ type RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> = {
 	options?: BaseStoreOptions
 }
 
-function callbackify<A extends any[], R extends any>(
-	fn: (...args: A) => Promise<R>
-) {
-	return (...args: [...A, Callback<Exclude<R, void>>?]) => {
-		const callback =
-			typeof args[args.length - 1] === "function"
-				? (args.pop() as Callback<R>)
-				: () => undefined
-
-		fn(...(args as unknown as A))
+function attach<Value>(callback: Callback<Value>) {
+	return (promise: Promise<Value>) => {
+		promise
 			.then((value) => callback(undefined, value))
-			.catch((error) => callback(error, undefined))
+			.catch((error) => callback(error))
 	}
 }
 
@@ -107,81 +94,94 @@ export default function connectRedis<
 			this.disableTTL = disableTTL || false
 			this.ttl = ttl || 24 * 60 * 60
 			this.disableTouch = disableTouch || false
-
-			this.get = callbackify(this.getAsync)
-			this.set = callbackify(this.setAsync)
-			this.destroy = callbackify(this.destroyAsync)
-			this.all = callbackify(this.allAsync)
-			this.length = callbackify(this.lengthAsync)
-			this.clear = callbackify(this.clearAsync)
-			this.touch = callbackify(this.touchAsync)
 		}
 
-		async getAsync(sid: string) {
+		get(sid: string, callback: Callback<Session | null>) {
+			const main = async () => {
+				const key = `${this.prefix}${sid}`
+				const value = await this.client.get(key)
+				if (!value) return null
+				return this.serializer.parse(value)
+			}
+
+			attach(callback)(main())
+		}
+
+		set(sid: string, session: Session, callback: Callback) {
+			const main = async () => {
+				const key = `${this.prefix}${sid}`
+				const value = this.serializer.stringify(session)
+
+				const ttl = this.__getTTL(session)
+				if (ttl < 0 && !this.disableTTL) return await this.client.del(key)
+
+				if (this.disableTTL) this.client.set(key, value)
+				else if (isNodeRedis(this.client))
+					await this.client.set(key, value, { EX: ttl })
+				else await this.client.set(key, value, "EX", ttl)
+			}
+
+			attach(callback)(main().then(() => undefined))
+		}
+
+		destroy(sid: string, callback: Callback) {
 			const key = `${this.prefix}${sid}`
-			const value = await this.client.get(key)
-			if (!value) return null
-			return this.serializer.parse(value)
+
+			attach(callback)(this.client.del(key).then(() => undefined))
 		}
 
-		async setAsync(sid: string, session: Session) {
-			const key = `${this.prefix}${sid}`
-			const value = this.serializer.stringify(session)
+		touch(sid: string, session: Session, callback: Callback) {
+			const main = async () => {
+				if (this.disableTouch || this.disableTouch) return undefined
+				const key = `${this.prefix}${sid}`
+				await this.client.expire(key, this.__getTTL(session))
+			}
 
-			const ttl = this.__getTTL(session)
-			if (ttl < 0 && !this.disableTTL) return this.destroyAsync(sid)
-
-			if (this.disableTTL) this.client.set(key, value)
-			else if (isNodeRedis(this.client))
-				await this.client.set(key, value, { EX: ttl })
-			else await this.client.set(key, value, "EX", ttl)
+			attach(callback)(main())
 		}
 
-		async destroyAsync(sid: string) {
-			const key = `${this.prefix}${sid}`
-			await this.client.del(key)
-		}
-
-		async touchAsync(sid: string, session: Session) {
-			if (this.disableTouch || this.disableTouch) return
-			const key = `${this.prefix}${sid}`
-			await this.client.expire(key, this.__getTTL(session))
-		}
-
-		async clearAsync() {
-			await this.client.del(await this.__getAllKeys())
-		}
-
-		async lengthAsync() {
-			return (await this.__getAllKeys()).length
-		}
-
-		async idsAsync() {
-			return await this.__getAllKeys().then((key) =>
-				key.slice(this.prefix.length)
+		clear(callback: Callback) {
+			attach(callback)(
+				this.__getAllKeys().then((keys) => void this.client.del(keys))
 			)
 		}
 
-		async allAsync() {
-			const keys = await this.__getAllKeys()
-			const values = isNodeRedis(this.client)
-				? await this.client.mGet(keys)
-				: await this.client.mget(keys)
+		length(callback: Callback<number>) {
+			attach(callback)(this.__getAllKeys().then((value) => value.length))
+		}
 
-			return Object.fromEntries(
-				keys
-					.map((key, idx) => {
-						const value = values[idx]
-
-						if (value)
-							return [
-								key.slice(this.prefix.length),
-								this.serializer.parse(value),
-							] as const
-						else return null
-					})
-					.filter((value): value is [string, Session] => Boolean(value))
+		ids(callback: Callback<string[]>) {
+			attach(callback)(
+				this.__getAllKeys().then((keys) =>
+					keys.map((k) => k.slice(this.prefix.length))
+				)
 			)
+		}
+
+		all(callback: Callback<{ [k: string]: Session }>) {
+			const main = async () => {
+				const keys = await this.__getAllKeys()
+				const values = isNodeRedis(this.client)
+					? await this.client.mGet(keys)
+					: await this.client.mget(keys)
+
+				return Object.fromEntries(
+					keys
+						.map((key, idx) => {
+							const value = values[idx]
+
+							if (value)
+								return [
+									key.slice(this.prefix.length),
+									this.serializer.parse(value),
+								] as const
+							else return null
+						})
+						.filter((value): value is [string, Session] => Boolean(value))
+				)
+			}
+
+			attach(callback)(main())
 		}
 
 		__getTTL(session: Session) {
