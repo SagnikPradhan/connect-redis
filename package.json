@@ -16,7 +16,7 @@
 		"prepack": "pinst --disable",
 		"postpack": "pinst --enable",
 		"test": "nyc --check-coverage mocha",
-		"coverage": "nyc report --reporter=text-lcov > ./coverage/lcov.info",
+		"coverage": "nyc report --reporter=text-lcov > lcov.info",
 		"test-start-redis": "docker start test-redis",
 		"test-setup-redis": "docker run --name test-redis -p 6379:6379 redis:latest"
 	},
