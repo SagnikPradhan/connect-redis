@@ -28,7 +28,7 @@ export type BaseSessionStore<
 
 type NodeRedis = nodeRedis.RedisClientType<any, any>
 type IORedis = ioRedis.default | ioRedis.Cluster
-type RedisClient = NodeRedis | IORedis
+export type RedisClient = NodeRedis | IORedis
 
 const isNodeRedis = (client: RedisClient): client is NodeRedis =>
 	"SCAN" in client
@@ -40,7 +40,10 @@ export interface Serializer<Session extends IBaseSession> {
 }
 
 /** Redis store options */
-type RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> = {
+export interface RedisStoreOptions<
+	Session extends IBaseSession,
+	BaseStoreOptions
+> {
 	/** Redis client instance */
 	client: RedisClient
 	/** Prefix for redis keys, uses `sess:` by default */
@@ -57,7 +60,7 @@ type RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> = {
 	options?: BaseStoreOptions
 }
 
-function attach<Value>(callback: Callback<Value>) {
+export function __attach<Value>(callback: Callback<Value>) {
 	return (promise: Promise<Value>) => {
 		promise
 			.then((value) => callback(undefined, value))
@@ -65,11 +68,20 @@ function attach<Value>(callback: Callback<Value>) {
 	}
 }
 
-/** Create redis store */
-export default function connectRedis<
+const noop = () => {}
+
+export type ConnectRedisOption<
 	Options extends Record<string, unknown>,
 	Session extends IBaseSession
->({ Store }: { Store: BaseSessionStore<Options, Session> }) {
+> = {
+	Store: BaseSessionStore<Options, Session>
+}
+
+/** Create redis store */
+export function connectRedis<
+	Options extends Record<string, unknown>,
+	Session extends IBaseSession
+>({ Store }: ConnectRedisOption<Options, Session>) {
 	return class RedisStore extends Store {
 		prefix: string
 		client: RedisClient
@@ -90,7 +102,7 @@ export default function connectRedis<
 			super(options)
 
 			this.client = client
-			this.prefix = prefix || "sess:"
+			this.prefix = typeof prefix === "string" ? prefix : "sess:"
 			this.serializer = serializer || JSON
 			this.disableTTL = disableTTL || false
 			this.ttl = ttl || 24 * 60 * 60
@@ -100,60 +112,65 @@ export default function connectRedis<
 		get(sid: string, callback: Callback<Session | null>) {
 			const main = async () => {
 				const key = `${this.prefix}${sid}`
-				const value = await this.client.get(key)
+				const value = await this.__sendCommand<string | null>("GET", key)
 				if (value) return this.serializer.parse(value)
 				else return null
 			}
 
-			attach(callback)(main())
+			__attach(callback)(main())
 		}
 
-		set(sid: string, session: Session, callback: Callback) {
+		set(sid: string, session: Session, callback: Callback = noop) {
 			const main = async () => {
 				const key = `${this.prefix}${sid}`
 				const value = this.serializer.stringify(session)
 
-				if (this.disableTTL) return this.client.set(key, value)
+				if (this.disableTTL) return this.__sendCommand("SET", key, value)
 
+				// Redis throws an error if negative TTL
 				const ttl = this.__getTTL(session)
-				if (ttl < 0) return await this.client.del(key)
+				if (ttl < 0) return this.__sendCommand("DEL", key)
 
-				if (isNodeRedis(this.client))
-					await this.client.set(key, value, { EX: ttl })
-				else await this.client.set(key, value, "EX", ttl)
+				return this.__sendCommand("SET", key, value, "EX", ttl.toString())
 			}
 
-			attach(callback)(main().then(() => undefined))
+			__attach(callback)(main().then(() => undefined))
 		}
 
-		destroy(sid: string, callback: Callback) {
+		destroy(sid: string, callback: Callback = noop) {
 			const key = `${this.prefix}${sid}`
-
-			attach(callback)(this.client.del(key).then(() => undefined))
+			__attach(callback)(this.__sendCommand("DEL", key).then(() => undefined))
 		}
 
-		touch(sid: string, session: Session, callback: Callback) {
+		touch(sid: string, session: Session, callback: Callback = noop) {
 			const main = async () => {
-				if (this.disableTouch || this.disableTouch) return undefined
+				if (this.disableTTL || this.disableTouch) return undefined
 				const key = `${this.prefix}${sid}`
-				await this.client.expire(key, this.__getTTL(session))
+
+				await this.__sendCommand(
+					"EXPIRE",
+					key,
+					this.__getTTL(session).toString()
+				)
 			}
 
-			attach(callback)(main())
+			__attach(callback)(main())
 		}
 
-		clear(callback: Callback) {
-			attach(callback)(
-				this.__getAllKeys().then((keys) => void this.client.del(keys))
+		clear(callback: Callback = noop) {
+			__attach(callback)(
+				this.__getAllKeys().then(
+					(keys) => void this.__sendCommand("DEL", ...keys)
+				)
 			)
 		}
 
 		length(callback: Callback<number>) {
-			attach(callback)(this.__getAllKeys().then((value) => value.length))
+			__attach(callback)(this.__getAllKeys().then((value) => value.length))
 		}
 
 		ids(callback: Callback<string[]>) {
-			attach(callback)(
+			__attach(callback)(
 				this.__getAllKeys().then((keys) =>
 					keys.map((k) => k.slice(this.prefix.length))
 				)
@@ -163,27 +180,25 @@ export default function connectRedis<
 		all(callback: Callback<{ [k: string]: Session }>) {
 			const main = async () => {
 				const keys = await this.__getAllKeys()
-				const values = isNodeRedis(this.client)
-					? await this.client.mGet(keys)
-					: await this.client.mget(keys)
+
+				const values = await this.__sendCommand<(string | null)[]>(
+					"MGET",
+					...keys
+				)
 
 				return Object.fromEntries(
-					keys
-						.map((key, idx) => {
-							const value = values[idx]
+					keys.map((key, idx) => {
+						const value = values[idx]!
 
-							if (value)
-								return [
-									key.slice(this.prefix.length),
-									this.serializer.parse(value),
-								] as const
-							else return null
-						})
-						.filter((value): value is [string, Session] => Boolean(value))
+						return [
+							key.slice(this.prefix.length),
+							this.serializer.parse(value),
+						] as const
+					})
 				)
 			}
 
-			attach(callback)(main())
+			__attach(callback)(main())
 		}
 
 		__getTTL(session: Session) {
@@ -192,8 +207,21 @@ export default function connectRedis<
 				: this.ttl
 		}
 
-		async __getAllKeys() {
-			const pattern = `${this.prefix}*`
+		__getAllKeys() {
+			const escapedPrefix = this.prefix
+				.replace(/\\/g, "\\\\")
+				.replace(/\*/g, "\\*")
+				.replace(/\?/g, "\\?")
+				.replace(/\[/g, "\\[")
+				.replace(/\]/g, "\\]")
+				.replace(/\{/g, "\\{")
+				.replace(/\}/g, "\\}")
+				.replace(/\)/g, "\\)")
+				.replace(/\(/g, "\\(")
+				.replace(/\!/g, "\\!")
+
+			const pattern = `${escapedPrefix}*`
+
 			return this.__scanKeys(0, pattern, 100)
 		}
 
@@ -202,11 +230,14 @@ export default function connectRedis<
 			pattern: string,
 			count: number
 		): Promise<string[]> {
-			const { cursor: nextCursor, keys } = await (isNodeRedis(this.client)
-				? this.client.scan(cursor, { COUNT: count, MATCH: pattern })
-				: this.client
-						.scan(cursor, "MATCH", pattern, "COUNT", count)
-						.then(([cursor, keys]) => ({ cursor: Number(cursor), keys })))
+			const [nextCursor, keys] = await this.__sendCommand<[number, string[]]>(
+				"SCAN",
+				cursor.toString(),
+				"MATCH",
+				pattern,
+				"COUNT",
+				count.toString()
+			).then(([cursor, keys]) => [Number(cursor), keys.map(String)] as const)
 
 			return [
 				...keys,
@@ -214,6 +245,19 @@ export default function connectRedis<
 					? await this.__scanKeys(nextCursor, pattern, count)
 					: []),
 			]
+		}
+
+		__sendCommand<Data>(...[cmd, ...args]: string[]) {
+			return new Promise<Data>((resolve) => {
+				if (isNodeRedis(this.client))
+					resolve(this.client.sendCommand([cmd, ...args], {}))
+				else {
+					const ioRedis = require("ioredis") as typeof import("ioredis")
+					const redisCommand = new ioRedis.Command(cmd, args)
+					resolve(redisCommand.promise)
+					this.client.sendCommand(redisCommand)
+				}
+			})
 		}
 	}
 }

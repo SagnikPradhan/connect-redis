@@ -15,7 +15,8 @@ const config = {
 	output: {
 		file: "./source/index.js",
 		format: "commonjs",
-		exports: "default",
+		exports: "named",
+		sourcemap: true,
 	},
 }
 

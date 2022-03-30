@@ -7,31 +7,48 @@
 	],
 	"main": "./source/index.js",
 	"types": "./source/index.d.ts",
-	"workspaces": [
-		"./tests"
-	],
 	"scripts": {
 		"build": "rollup -c",
 		"watch": "rollup -cw",
-		"prepublish": "yarn build",
-		"pre-commit": "yarn build",
+		"prepublish": "yarn build && yarn test",
+		"pre-commit": "yarn build && yarn test",
 		"postinstall": "husky install",
 		"prepack": "pinst --disable",
-		"postpack": "pinst --enable"
+		"postpack": "pinst --enable",
+		"test": "nyc mocha",
+		"test-start-redis": "docker start test-redis",
+		"test-setup-redis": "docker run --name test-redis -p 6379:6379 redis:latest"
 	},
 	"devDependencies": {
+		"@fastify/session": "^6.5.2",
 		"@swc/core": "^1.2.161",
 		"@swc/helpers": "^0.3.8",
+		"@types/chai": "^4",
+		"@types/express-session": "^1",
+		"@types/mocha": "^9",
 		"@types/node": "^17.0.23",
-		"@types/tap": "^15.0.6",
+		"chai": "^4.3.6",
+		"express-session": "^1.17.2",
+		"fast-check": "^2.23.2",
 		"husky": "^7.0.0",
 		"ioredis": "^5.0.1",
+		"mocha": "^9.2.2",
+		"nyc": "^15.1.0",
 		"pinst": "^3.0.0",
 		"prettier": "^2.6.1",
 		"redis": "^4.0.4",
 		"rollup": "^2.70.1",
 		"rollup-plugin-ts": "^2.0.5",
+		"ts-node": "^10.7.0",
 		"typescript": "^4.6.3"
+	},
+	"peerDependencies": {
+		"ioredis": "^5.0.1"
+	},
+	"peerDependenciesMeta": {
+		"ioredis": {
+			"optional": true
+		}
 	},
 	"license": "MIT",
 	"packageManager": "yarn@3.2.0"

@@ -31,7 +31,7 @@ interface Serializer<Session extends IBaseSession> {
     parse(value: string): Session;
 }
 /** Redis store options */
-type RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> = {
+interface RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> {
     /** Redis client instance */
     client: RedisClient;
     /** Prefix for redis keys, uses `sess:` by default */
@@ -46,11 +46,13 @@ type RedisStoreOptions<Session extends IBaseSession, BaseStoreOptions> = {
     disableTouch?: boolean;
     /** Parent store instance options */
     options?: BaseStoreOptions;
+}
+declare function __attach<Value>(callback: Callback<Value>): (promise: Promise<Value>) => void;
+type ConnectRedisOption<Options extends Record<string, unknown>, Session extends IBaseSession> = {
+    Store: BaseSessionStore<Options, Session>;
 };
 /** Create redis store */
-declare function connectRedis<Options extends Record<string, unknown>, Session extends IBaseSession>({ Store }: {
-    Store: BaseSessionStore<Options, Session>;
-}): {
+declare function connectRedis<Options extends Record<string, unknown>, Session extends IBaseSession>({ Store }: ConnectRedisOption<Options, Session>): {
     new ({ options, client, prefix, serializer, disableTTL, ttl, disableTouch, }: RedisStoreOptions<Session, Options>): {
         prefix: string;
         client: RedisClient;
@@ -59,10 +61,10 @@ declare function connectRedis<Options extends Record<string, unknown>, Session e
         ttl: number;
         disableTouch: boolean;
         get(sid: string, callback: Callback<Session | null>): void;
-        set(sid: string, session: Session, callback: Callback): void;
-        destroy(sid: string, callback: Callback): void;
-        touch(sid: string, session: Session, callback: Callback): void;
-        clear(callback: Callback): void;
+        set(sid: string, session: Session, callback?: Callback): void;
+        destroy(sid: string, callback?: Callback): void;
+        touch(sid: string, session: Session, callback?: Callback): void;
+        clear(callback?: Callback): void;
         length(callback: Callback<number>): void;
         ids(callback: Callback<string[]>): void;
         all(callback: Callback<{
@@ -71,6 +73,7 @@ declare function connectRedis<Options extends Record<string, unknown>, Session e
         __getTTL(session: Session): number;
         __getAllKeys(): Promise<string[]>;
         __scanKeys(cursor: number, pattern: string, count: number): Promise<string[]>;
+        __sendCommand<Data>(...[cmd, ...args]: string[]): Promise<Data>;
     };
 };
-export { Callback, IBaseSession, IBaseSessionStore, BaseSessionStore, Serializer, connectRedis as default };
+export { Callback, IBaseSession, IBaseSessionStore, BaseSessionStore, RedisClient, Serializer, RedisStoreOptions, __attach, ConnectRedisOption, connectRedis };
