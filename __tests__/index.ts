@@ -10,8 +10,8 @@ import { createClient as createNodeRedisClient } from "redis"
 import util from "util"
 
 const MATRIX = [
-	["ioRedis + fastify", new ioRedis({ lazyConnect: true }), expressSession],
-	["ioRedis + express", new ioRedis({ lazyConnect: true }), fastifySession],
+	["ioRedis + fastify", new ioRedis({ lazyConnect: true }), fastifySession],
+	["ioRedis + express", new ioRedis({ lazyConnect: true }), expressSession],
 	["redis + fastify", createNodeRedisClient(), fastifySession],
 	["redis + express", createNodeRedisClient(), expressSession],
 ] as const
